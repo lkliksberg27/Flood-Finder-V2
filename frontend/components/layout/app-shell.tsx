@@ -12,11 +12,17 @@ import {
   Menu,
   X,
   Radio,
+  Bell,
+  Settings,
+  Navigation,
 } from "lucide-react";
 import { useState } from "react";
 
 const NAV_ITEMS = [
-  { href: "/map", label: "Live Map", icon: Map, public: true },
+  { href: "/map", label: "Map", icon: Map, public: true },
+  { href: "/alerts", label: "Alerts", icon: Bell, public: true },
+  { href: "/routes", label: "Routes", icon: Navigation, public: true },
+  { href: "/settings", label: "Settings", icon: Settings, public: true },
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, public: false },
 ];
 
@@ -26,9 +32,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const visibleNav = NAV_ITEMS.filter((item) => item.public || isAdmin);
+  const bottomNav = visibleNav.slice(0, 4); // Show max 4 in bottom bar
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex flex-col md:flex-row h-screen overflow-hidden">
       {/* ── Desktop sidebar ──────────────────────────────────────── */}
       <aside className="hidden md:flex flex-col w-64 bg-surface-1 border-r border-surface-3/50">
         <div className="flex items-center gap-3 px-5 py-5 border-b border-surface-3/50">
@@ -52,7 +59,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               href={item.href}
               className={cn(
                 "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all",
-                pathname === item.href
+                pathname === item.href || pathname.startsWith(item.href + "/")
                   ? "bg-blue-500/15 text-blue-400 font-medium"
                   : "text-gray-400 hover:text-gray-200 hover:bg-surface-2/50"
               )}
@@ -82,58 +89,48 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         )}
       </aside>
 
-      {/* ── Mobile header ────────────────────────────────────────── */}
+      {/* ── Main content area ────────────────────────────────────── */}
       <div className="flex flex-col flex-1 overflow-hidden">
+        {/* Mobile header (minimal) */}
         <header className="md:hidden flex items-center justify-between px-4 py-3 bg-surface-1 border-b border-surface-3/50">
           <div className="flex items-center gap-2">
             <Droplets className="w-5 h-5 text-blue-400" />
             <span className="text-sm font-semibold">Flood Finder</span>
           </div>
-          <button
-            onClick={() => setMobileOpen(!mobileOpen)}
-            className="p-2 rounded-lg hover:bg-surface-2"
-          >
-            {mobileOpen ? (
-              <X className="w-5 h-5" />
-            ) : (
-              <Menu className="w-5 h-5" />
-            )}
-          </button>
+          {user && (
+            <button
+              onClick={logout}
+              className="p-2 rounded-lg hover:bg-surface-2 text-gray-400"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          )}
         </header>
 
-        {/* ── Mobile nav drawer ────────────────────────────────── */}
-        {mobileOpen && (
-          <nav className="md:hidden bg-surface-1 border-b border-surface-3/50 px-4 py-3 space-y-1 animate-slide-up">
-            {visibleNav.map((item) => (
+        {/* Page content */}
+        <main className="flex-1 overflow-auto pb-16 md:pb-0">{children}</main>
+
+        {/* ── Mobile bottom tab bar ───────────────────────────────── */}
+        <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-surface-1/95 backdrop-blur-lg border-t border-surface-3/50 flex justify-around items-center py-2 px-2 z-50">
+          {bottomNav.map((item) => {
+            const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+            return (
               <Link
                 key={item.href}
                 href={item.href}
-                onClick={() => setMobileOpen(false)}
                 className={cn(
-                  "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm",
-                  pathname === item.href
-                    ? "bg-blue-500/15 text-blue-400"
-                    : "text-gray-400"
+                  "flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl transition-all min-w-[60px]",
+                  isActive
+                    ? "text-blue-400"
+                    : "text-gray-500"
                 )}
               >
-                <item.icon className="w-[18px] h-[18px]" />
-                {item.label}
+                <item.icon className={cn("w-5 h-5", isActive && "stroke-[2.5]")} />
+                <span className="text-[10px] font-medium">{item.label}</span>
               </Link>
-            ))}
-            {user && (
-              <button
-                onClick={() => { logout(); setMobileOpen(false); }}
-                className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm text-gray-400"
-              >
-                <LogOut className="w-[18px] h-[18px]" />
-                Sign out
-              </button>
-            )}
-          </nav>
-        )}
-
-        {/* ── Page content ─────────────────────────────────────── */}
-        <main className="flex-1 overflow-auto">{children}</main>
+            );
+          })}
+        </nav>
       </div>
     </div>
   );

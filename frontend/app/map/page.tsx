@@ -12,7 +12,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { cn, timeAgo } from "@/lib/utils";
 import { Device, FloodStatus, STATUS_CONFIG } from "@/types";
 import Link from "next/link";
@@ -23,12 +23,37 @@ export default function MapPage() {
   const stats = useFloodStats(devices);
   const [panelOpen, setPanelOpen] = useState(false);
   const [selectedFilter, setSelectedFilter] = useState<FloodStatus | "ALL">("ALL");
+  const [cityName, setCityName] = useState("Loading...");
 
   const alertDevices = devices.filter((d) => d.status === "ALERT");
   const filteredDevices =
     selectedFilter === "ALL"
       ? devices
       : devices.filter((d) => d.status === selectedFilter);
+
+  // Get city name from geolocation
+  useEffect(() => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          try {
+            const { latitude, longitude } = pos.coords;
+            const resp = await fetch(
+              `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`
+            );
+            const data = await resp.json();
+            const city = data.address?.city || data.address?.town || data.address?.village || "Unknown";
+            const state = data.address?.state || "";
+            setCityName(`${city}, ${state}`);
+          } catch {
+            setCityName("Your Area");
+          }
+        },
+        () => setCityName("Your Area"),
+        { timeout: 5000 }
+      );
+    }
+  }, []);
 
   if (loading) {
     return (
@@ -43,58 +68,62 @@ export default function MapPage() {
   return (
     <AppShell>
       <div className="relative h-full">
-        {/* ── Full-screen map ────────────────────────────────────── */}
+        {/* Full-screen map */}
         <FloodMap
           devices={devices}
           initialCenter={getMapCenter(devices)}
-          initialZoom={devices.length > 0 ? 14 : 12}
+          initialZoom={devices.length > 0 ? 14 : 14}
         />
 
-        {/* ── Top-left status bar ────────────────────────────────── */}
+        {/* Top header card */}
         <div className="absolute top-3 left-3 right-3 md:right-auto md:max-w-sm z-10">
-          <div className="card p-3 backdrop-blur-sm bg-surface-1/90">
-            <div className="flex items-center gap-3">
-              <Droplets className="w-5 h-5 text-blue-400 shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold text-gray-200">
-                  Neighborhood Flood Status
-                </p>
-                <p className="text-[11px] text-gray-500">
-                  {stats.total} sensors • Live
-                </p>
-              </div>
-              <div className="flex gap-1.5">
-                <MiniStat count={stats.ok} status="OK" />
-                <MiniStat count={stats.warn} status="WARN" />
-                <MiniStat count={stats.alert} status="ALERT" />
-              </div>
+          <div className="card overflow-hidden backdrop-blur-md bg-surface-1/90">
+            <div className="px-4 py-3">
+              <h2 className="text-base font-bold text-gray-100">Flood Finder</h2>
+              <p className="text-xs text-gray-500">{cityName}</p>
             </div>
+            {alertDevices.length > 0 && (
+              <div className="bg-red-500/20 px-4 py-2 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-red-400" />
+                <p className="text-xs font-semibold text-red-300">
+                  {alertDevices.length} Severe Alert{alertDevices.length > 1 ? "s" : ""}
+                </p>
+              </div>
+            )}
           </div>
-
-          {/* Alert banner */}
-          {alertDevices.length > 0 && (
-            <div className="card mt-2 p-3 backdrop-blur-sm bg-red-500/10 border-red-500/30 animate-pulse-slow">
-              <div className="flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
-                <p className="text-xs text-red-300">
-                  <span className="font-semibold">{alertDevices.length} FLOOD ALERT{alertDevices.length > 1 ? "S" : ""}</span>
-                  {" — "}
-                  {alertDevices.map((d) => d.name).join(", ")}
-                </p>
-              </div>
-            </div>
-          )}
         </div>
 
-        {/* ── Bottom panel (mobile-friendly device list) ──────────── */}
+        {/* Legend */}
+        <div className="absolute bottom-20 md:bottom-4 left-3 z-10">
+          <div className="card px-3 py-2.5 backdrop-blur-md bg-surface-1/90">
+            <p className="text-[10px] text-gray-400 font-semibold mb-1.5">Legend</p>
+            <div className="space-y-1">
+              {[
+                { color: "#22c55e", label: "None" },
+                { color: "#f59e0b", label: "Mild" },
+                { color: "#f97316", label: "Moderate" },
+                { color: "#ef4444", label: "Severe" },
+              ].map((item) => (
+                <div key={item.label} className="flex items-center gap-2">
+                  <div
+                    className="w-3 h-3 rounded-full"
+                    style={{ backgroundColor: item.color }}
+                  />
+                  <span className="text-[11px] text-gray-300">{item.label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Bottom panel (device list) */}
         <div
           className={cn(
             "absolute bottom-0 left-0 right-0 z-10 transition-all duration-300",
             panelOpen ? "max-h-[60vh]" : "max-h-14"
           )}
         >
-          <div className="card rounded-b-none backdrop-blur-sm bg-surface-1/95 overflow-hidden h-full flex flex-col">
-            {/* Toggle bar */}
+          <div className="card rounded-b-none backdrop-blur-md bg-surface-1/95 overflow-hidden h-full flex flex-col">
             <button
               onClick={() => setPanelOpen(!panelOpen)}
               className="flex items-center justify-center gap-2 px-4 py-3 text-xs text-gray-400 hover:text-gray-200 transition-colors shrink-0"
@@ -108,8 +137,7 @@ export default function MapPage() {
             </button>
 
             {panelOpen && (
-              <div className="flex-1 overflow-y-auto">
-                {/* Filter tabs */}
+              <div className="flex-1 overflow-y-auto pb-16">
                 <div className="flex gap-1 px-4 pb-2">
                   {(["ALL", "ALERT", "WARN", "OK"] as const).map((f) => (
                     <button
@@ -127,7 +155,6 @@ export default function MapPage() {
                   ))}
                 </div>
 
-                {/* Device list */}
                 <div className="divide-y divide-surface-3/30">
                   {filteredDevices.map((device) => (
                     <div
@@ -160,6 +187,11 @@ export default function MapPage() {
                       )}
                     </div>
                   ))}
+                  {filteredDevices.length === 0 && (
+                    <div className="px-4 py-8 text-center text-sm text-gray-500">
+                      No devices found
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -170,26 +202,9 @@ export default function MapPage() {
   );
 }
 
-// ─── Helpers ────────────────────────────────────────────────────────────
-function MiniStat({ count, status }: { count: number; status: FloodStatus }) {
-  if (count === 0) return null;
-  const config = STATUS_CONFIG[status];
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold tabular-nums",
-        config.bgClass,
-        config.textClass
-      )}
-    >
-      {count}
-    </span>
-  );
-}
-
 function getMapCenter(devices: Device[]): [number, number] {
   const located = devices.filter((d) => d.lat && d.lng);
-  if (located.length === 0) return [-95.37, 29.76]; // Default: Houston
+  if (located.length === 0) return [-80.137, 25.957]; // Aventura default
   const avgLng = located.reduce((s, d) => s + d.lng, 0) / located.length;
   const avgLat = located.reduce((s, d) => s + d.lat, 0) / located.length;
   return [avgLng, avgLat];
