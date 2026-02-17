@@ -1,4 +1,2 @@
 import { redirect } from "next/navigation";
-export default function Home() {
-  redirect("/map");
-}
+export default function Home() { redirect("/map"); }
