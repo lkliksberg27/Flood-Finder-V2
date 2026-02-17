@@ -2,75 +2,45 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useAuth } from "@/lib/auth-context";
-import { hapticLight } from "@/lib/haptics";
+import { haptic } from "@/lib/haptics";
 import { cn } from "@/lib/utils";
-import {
-  Map,
-  Bell,
-  Navigation,
-  Settings,
-  LayoutDashboard,
-  Droplets,
-  LogOut,
-} from "lucide-react";
+import { Map, Bell, Navigation, Settings } from "lucide-react";
 
 const TABS = [
-  { href: "/map", label: "Map", icon: Map },
-  { href: "/alerts", label: "Alerts", icon: Bell },
-  { href: "/routes", label: "Routes", icon: Navigation },
-  { href: "/settings", label: "Settings", icon: Settings },
+  { href: "/map", label: "Map", Icon: Map },
+  { href: "/alerts", label: "Alerts", Icon: Bell },
+  { href: "/routes", label: "Routes", Icon: Navigation },
+  { href: "/settings", label: "Settings", Icon: Settings },
 ];
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
-  const { user, isAdmin, logout } = useAuth();
-  const pathname = usePathname();
+  const path = usePathname();
 
   return (
-    <div className="flex flex-col h-[100dvh] overflow-hidden bg-surface-0">
-      {/* ── Main content ──────────────────────────────── */}
-      <main className="flex-1 overflow-auto overscroll-contain pb-[calc(env(safe-area-inset-bottom)+68px)]">
+    <div className="flex flex-col h-[100dvh] overflow-hidden">
+      <main className="flex-1 overflow-auto overscroll-contain" style={{ paddingBottom: "calc(72px + env(safe-area-inset-bottom, 0px))" }}>
         {children}
       </main>
 
-      {/* ── Bottom tab bar ─────────────────────────────── */}
       <nav
-        className="fixed bottom-0 left-0 right-0 z-50 bg-surface-1/80 backdrop-blur-2xl border-t border-white/[0.04]"
-        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+        className="fixed bottom-0 inset-x-0 z-50 bg-[#0c1021]/90 backdrop-blur-2xl border-t border-white/[0.05]"
+        style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
       >
-        <div className="flex justify-around items-end px-2 pt-1.5 pb-1.5 max-w-lg mx-auto">
-          {TABS.map((tab) => {
-            const isActive =
-              pathname === tab.href || pathname.startsWith(tab.href + "/");
+        <div className="flex justify-around items-center h-[60px] max-w-md mx-auto">
+          {TABS.map(({ href, label, Icon }) => {
+            const active = path === href || path?.startsWith(href + "/");
             return (
               <Link
-                key={tab.href}
-                href={tab.href}
-                onClick={() => hapticLight()}
+                key={href}
+                href={href}
+                onClick={() => haptic.light()}
                 className={cn(
-                  "flex flex-col items-center gap-0.5 py-1 px-4 rounded-2xl transition-all duration-200 active:scale-90 select-none",
-                  isActive ? "text-blue-400" : "text-gray-500 active:text-gray-300"
+                  "flex flex-col items-center gap-[2px] py-1 px-5 rounded-2xl select-none transition-all duration-150 active:scale-[0.85]",
+                  active ? "text-[#5b9aff]" : "text-[#4a5070]"
                 )}
               >
-                <div className="relative">
-                  <tab.icon
-                    className={cn(
-                      "w-[22px] h-[22px] transition-all duration-200",
-                      isActive && "stroke-[2.5]"
-                    )}
-                  />
-                  {isActive && (
-                    <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-blue-400" />
-                  )}
-                </div>
-                <span
-                  className={cn(
-                    "text-[10px] font-medium transition-all",
-                    isActive ? "text-blue-400" : "text-gray-500"
-                  )}
-                >
-                  {tab.label}
-                </span>
+                <Icon className={cn("w-[22px] h-[22px]", active && "stroke-[2.4]")} />
+                <span className={cn("text-[10px] font-semibold", active && "text-[#5b9aff]")}>{label}</span>
               </Link>
             );
           })}
