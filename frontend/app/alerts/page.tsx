@@ -2,10 +2,11 @@
 
 import { useDevices } from "@/hooks/use-firestore";
 import AppShell from "@/components/layout/app-shell";
-import { StatusBadge } from "@/components/ui/status-badge";
-import { AlertTriangle, Droplets, Clock, Loader2 } from "lucide-react";
+import { hapticLight, hapticWarning } from "@/lib/haptics";
+import { AlertTriangle, Droplets, Clock, Loader2, CheckCircle2 } from "lucide-react";
 import { cn, timeAgo } from "@/lib/utils";
 import { Device, FloodStatus, STATUS_CONFIG } from "@/types";
+import Link from "next/link";
 
 export default function AlertsPage() {
   const { devices, loading } = useDevices();
@@ -19,7 +20,6 @@ export default function AlertsPage() {
 
   const severe = devices.filter((d) => d.status === "ALERT").length;
   const moderate = devices.filter((d) => d.status === "WARN").length;
-  const total = alertDevices.length;
 
   if (loading) {
     return (
@@ -31,121 +31,112 @@ export default function AlertsPage() {
     );
   }
 
-  function getSeverityLabel(status: FloodStatus): string {
-    if (status === "ALERT") return "Severe Flooding";
-    if (status === "WARN") return "Moderate Flooding";
-    return "Normal";
-  }
-
-  function getAlertMessage(device: Device): string {
-    if (device.status === "ALERT") {
-      return `SEVERE FLOODING at ${device.name}. Water depth: ${device.waterLevelCm.toFixed(0)} cm. Do not enter the area!`;
-    }
-    if (device.status === "WARN") {
-      return `Moderate flooding at ${device.name}. Water depth: ${device.waterLevelCm.toFixed(0)} cm. Avoid the area if possible.`;
-    }
-    return `Conditions normal at ${device.name}.`;
-  }
-
-  function getBorderColor(status: FloodStatus): string {
-    if (status === "ALERT") return "border-l-red-500";
-    if (status === "WARN") return "border-l-amber-500";
-    return "border-l-green-500";
-  }
-
   return (
     <AppShell>
-      <div className="p-4 md:p-6 max-w-2xl mx-auto">
+      <div className="px-4 pt-[calc(env(safe-area-inset-top,12px)+8px)] pb-6">
         {/* Header */}
-        <div className="flex items-center justify-between mb-2">
-          <h1 className="text-2xl font-bold">Alerts</h1>
-          <div className="relative">
-            <AlertTriangle className="w-6 h-6 text-gray-400" />
-            {total > 0 && (
-              <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center">
-                {total}
+        <div className="flex items-center justify-between mb-1">
+          <h1 className="text-[28px] font-bold tracking-tight">Alerts</h1>
+          {alertDevices.length > 0 && (
+            <div className="relative">
+              <Bell className="w-6 h-6 text-gray-400" />
+              <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[9px] font-bold rounded-full w-[18px] h-[18px] flex items-center justify-center">
+                {alertDevices.length}
               </span>
-            )}
-          </div>
-        </div>
-        <p className="text-sm text-gray-500 mb-6">Real-time flood alerts for your area</p>
-
-        {/* Summary cards */}
-        <div className="grid grid-cols-3 gap-3 mb-6">
-          <div className="bg-red-500/15 rounded-xl p-3">
-            <p className="text-[11px] text-red-400 font-medium">Severe</p>
-            <p className="text-2xl font-bold text-red-400">{severe}</p>
-          </div>
-          <div className="bg-amber-500/15 rounded-xl p-3">
-            <p className="text-[11px] text-amber-400 font-medium">Moderate</p>
-            <p className="text-2xl font-bold text-amber-400">{moderate}</p>
-          </div>
-          <div className="bg-surface-2 rounded-xl p-3">
-            <p className="text-[11px] text-gray-400 font-medium">Total Active</p>
-            <p className="text-2xl font-bold text-gray-200">{total}</p>
-          </div>
-        </div>
-
-        {/* Alert list */}
-        {alertDevices.length === 0 ? (
-          <div className="card p-8 text-center">
-            <div className="w-12 h-12 rounded-full bg-green-500/15 flex items-center justify-center mx-auto mb-4">
-              <Droplets className="w-6 h-6 text-green-400" />
             </div>
-            <p className="text-gray-300 font-medium">All Clear</p>
-            <p className="text-sm text-gray-500 mt-1">No active flood alerts in your area</p>
+          )}
+        </div>
+        <p className="text-[13px] text-gray-500 mb-5">Real-time flood alerts</p>
+
+        {/* Summary pills */}
+        <div className="flex gap-2.5 mb-5">
+          <div className="flex-1 bg-red-500/10 rounded-2xl p-3.5">
+            <p className="text-[10px] text-red-400/70 font-semibold uppercase tracking-wider">Severe</p>
+            <p className="text-[28px] font-bold text-red-400 leading-tight mt-0.5">{severe}</p>
+          </div>
+          <div className="flex-1 bg-amber-500/10 rounded-2xl p-3.5">
+            <p className="text-[10px] text-amber-400/70 font-semibold uppercase tracking-wider">Moderate</p>
+            <p className="text-[28px] font-bold text-amber-400 leading-tight mt-0.5">{moderate}</p>
+          </div>
+          <div className="flex-1 bg-surface-2/60 rounded-2xl p-3.5">
+            <p className="text-[10px] text-gray-400/70 font-semibold uppercase tracking-wider">Active</p>
+            <p className="text-[28px] font-bold text-gray-200 leading-tight mt-0.5">{alertDevices.length}</p>
+          </div>
+        </div>
+
+        {/* Alert cards */}
+        {alertDevices.length === 0 ? (
+          <div className="flex flex-col items-center py-16 animate-fadeIn">
+            <div className="w-16 h-16 rounded-full bg-green-500/10 flex items-center justify-center mb-4">
+              <CheckCircle2 className="w-8 h-8 text-green-400" />
+            </div>
+            <p className="text-lg font-semibold text-gray-200">All Clear</p>
+            <p className="text-[13px] text-gray-500 mt-1">No active flood alerts in your area</p>
           </div>
         ) : (
           <div className="space-y-3">
-            {alertDevices.map((device) => (
-              <div
+            {alertDevices.map((device, i) => (
+              <Link
                 key={device.deviceId}
+                href={`/device/${device.deviceId}`}
+                onClick={() => hapticLight()}
                 className={cn(
-                  "card border-l-4 p-4",
-                  getBorderColor(device.status)
+                  "block card border-l-[3px] p-4 active:scale-[0.98] transition-transform duration-100 animate-slideUp",
+                  device.status === "ALERT" ? "border-l-red-500" : "border-l-amber-500"
                 )}
+                style={{ animationDelay: `${i * 60}ms` }}
               >
-                <div className="flex items-start justify-between mb-2">
-                  <div className="flex items-center gap-2.5">
-                    <div className={cn(
-                      "w-9 h-9 rounded-full flex items-center justify-center",
-                      device.status === "ALERT" ? "bg-red-500/15" : "bg-amber-500/15"
-                    )}>
-                      <AlertTriangle className={cn(
-                        "w-4.5 h-4.5",
-                        device.status === "ALERT" ? "text-red-400" : "text-amber-400"
-                      )} />
-                    </div>
-                    <div>
-                      <p className="font-semibold text-sm text-gray-100">{device.name}</p>
-                      <p className={cn(
-                        "text-xs font-semibold",
-                        device.status === "ALERT" ? "text-red-400" : "text-amber-400"
-                      )}>
-                        {getSeverityLabel(device.status)}
-                      </p>
-                    </div>
+                <div className="flex items-start gap-3 mb-2.5">
+                  <div className={cn(
+                    "w-9 h-9 rounded-xl flex items-center justify-center shrink-0",
+                    device.status === "ALERT" ? "bg-red-500/15" : "bg-amber-500/15"
+                  )}>
+                    <AlertTriangle className={cn(
+                      "w-[18px] h-[18px]",
+                      device.status === "ALERT" ? "text-red-400" : "text-amber-400"
+                    )} />
                   </div>
-                  <div className="w-2.5 h-2.5 rounded-full bg-blue-400 shrink-0 mt-1" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[14px] font-semibold text-gray-100">{device.name}</p>
+                    <p className={cn(
+                      "text-[11px] font-bold mt-0.5",
+                      device.status === "ALERT" ? "text-red-400" : "text-amber-400"
+                    )}>
+                      {device.status === "ALERT" ? "Severe Flooding" : "Moderate Flooding"}
+                    </p>
+                  </div>
                 </div>
-                <p className="text-sm text-gray-400 mb-3 leading-relaxed">
-                  {getAlertMessage(device)}
+
+                <p className="text-[13px] text-gray-400 leading-relaxed mb-3">
+                  {device.status === "ALERT"
+                    ? `Severe flooding detected. Water depth: ${device.waterLevelCm.toFixed(0)} cm. Avoid this area.`
+                    : `Moderate flooding detected. Water depth: ${device.waterLevelCm.toFixed(0)} cm. Use caution.`}
                 </p>
-                <div className="flex items-center gap-4 text-[11px] text-gray-500">
-                  <span className="flex items-center gap-1">
-                    <Droplets className="w-3.5 h-3.5" />
-                    {device.waterLevelCm.toFixed(0)} cm depth
+
+                <div className="flex items-center gap-4">
+                  <span className="flex items-center gap-1.5 text-[11px] text-gray-500">
+                    <Droplets className="w-3 h-3" />
+                    {device.waterLevelCm.toFixed(0)} cm
                   </span>
-                  <span className="flex items-center gap-1">
-                    <Clock className="w-3.5 h-3.5" />
+                  <span className="flex items-center gap-1.5 text-[11px] text-gray-500">
+                    <Clock className="w-3 h-3" />
                     {device.lastSeen ? timeAgo(device.lastSeen) : "Just now"}
                   </span>
                 </div>
-              </div>
+              </Link>
             ))}
           </div>
         )}
       </div>
     </AppShell>
+  );
+}
+
+function Bell(props: any) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+      <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+    </svg>
   );
 }

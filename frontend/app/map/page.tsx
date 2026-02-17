@@ -5,12 +5,14 @@ import { FloodMap } from "@/components/map/flood-map";
 import AppShell from "@/components/layout/app-shell";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { useAuth } from "@/lib/auth-context";
+import { hapticLight, hapticMedium } from "@/lib/haptics";
 import {
   Droplets,
   AlertTriangle,
   Loader2,
   ChevronDown,
   ChevronUp,
+  Locate,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { cn, timeAgo } from "@/lib/utils";
@@ -23,7 +25,7 @@ export default function MapPage() {
   const stats = useFloodStats(devices);
   const [panelOpen, setPanelOpen] = useState(false);
   const [selectedFilter, setSelectedFilter] = useState<FloodStatus | "ALL">("ALL");
-  const [cityName, setCityName] = useState("Loading...");
+  const [cityName, setCityName] = useState("");
 
   const alertDevices = devices.filter((d) => d.status === "ALERT");
   const filteredDevices =
@@ -31,7 +33,6 @@ export default function MapPage() {
       ? devices
       : devices.filter((d) => d.status === selectedFilter);
 
-  // Get city name from geolocation
   useEffect(() => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
@@ -42,14 +43,12 @@ export default function MapPage() {
               `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`
             );
             const data = await resp.json();
-            const city = data.address?.city || data.address?.town || data.address?.village || "Unknown";
+            const city = data.address?.city || data.address?.town || data.address?.village || "";
             const state = data.address?.state || "";
-            setCityName(`${city}, ${state}`);
-          } catch {
-            setCityName("Your Area");
-          }
+            setCityName(city ? `${city}, ${state}` : "");
+          } catch { setCityName(""); }
         },
-        () => setCityName("Your Area"),
+        () => {},
         { timeout: 5000 }
       );
     }
@@ -67,25 +66,37 @@ export default function MapPage() {
 
   return (
     <AppShell>
-      <div className="relative h-full">
-        {/* Full-screen map */}
+      <div className="relative h-full -mb-[68px]">
         <FloodMap
           devices={devices}
           initialCenter={getMapCenter(devices)}
-          initialZoom={devices.length > 0 ? 14 : 14}
+          initialZoom={15}
         />
 
-        {/* Top header card */}
-        <div className="absolute top-3 left-3 right-3 md:right-auto md:max-w-sm z-10">
-          <div className="card overflow-hidden backdrop-blur-md bg-surface-1/90">
-            <div className="px-4 py-3">
-              <h2 className="text-base font-bold text-gray-100">Flood Finder</h2>
-              <p className="text-xs text-gray-500">{cityName}</p>
+        {/* ── Top floating card ──────────────────────── */}
+        <div className="absolute top-[env(safe-area-inset-top,8px)] left-3 right-3 z-10 pt-2 animate-slideUp">
+          <div className="bg-surface-1/85 backdrop-blur-2xl rounded-2xl border border-white/[0.06] shadow-2xl shadow-black/20 overflow-hidden">
+            <div className="px-4 py-3 flex items-center justify-between">
+              <div>
+                <h2 className="text-[15px] font-bold text-white tracking-tight">Flood Finder</h2>
+                {cityName && (
+                  <p className="text-[11px] text-gray-400 mt-0.5">{cityName}</p>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {stats.total > 0 && (
+                  <div className="flex gap-1">
+                    {stats.ok > 0 && <MiniPill count={stats.ok} status="OK" />}
+                    {stats.warn > 0 && <MiniPill count={stats.warn} status="WARN" />}
+                    {stats.alert > 0 && <MiniPill count={stats.alert} status="ALERT" />}
+                  </div>
+                )}
+              </div>
             </div>
             {alertDevices.length > 0 && (
               <div className="bg-red-500/20 px-4 py-2 flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-red-400" />
-                <p className="text-xs font-semibold text-red-300">
+                <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
+                <p className="text-[11px] font-semibold text-red-300">
                   {alertDevices.length} Severe Alert{alertDevices.length > 1 ? "s" : ""}
                 </p>
               </div>
@@ -93,61 +104,56 @@ export default function MapPage() {
           </div>
         </div>
 
-        {/* Legend */}
-        <div className="absolute bottom-20 md:bottom-4 left-3 z-10">
-          <div className="card px-3 py-2.5 backdrop-blur-md bg-surface-1/90">
-            <p className="text-[10px] text-gray-400 font-semibold mb-1.5">Legend</p>
-            <div className="space-y-1">
+        {/* ── Legend ──────────────────────────────────── */}
+        <div className="absolute bottom-[88px] left-3 z-10 animate-fadeIn">
+          <div className="bg-surface-1/80 backdrop-blur-xl rounded-xl px-3 py-2.5 border border-white/[0.04]">
+            <div className="space-y-1.5">
               {[
-                { color: "#22c55e", label: "None" },
-                { color: "#f59e0b", label: "Mild" },
-                { color: "#f97316", label: "Moderate" },
+                { color: "#22c55e", label: "Normal" },
+                { color: "#f59e0b", label: "Warning" },
                 { color: "#ef4444", label: "Severe" },
               ].map((item) => (
                 <div key={item.label} className="flex items-center gap-2">
-                  <div
-                    className="w-3 h-3 rounded-full"
-                    style={{ backgroundColor: item.color }}
-                  />
-                  <span className="text-[11px] text-gray-300">{item.label}</span>
+                  <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: item.color }} />
+                  <span className="text-[10px] text-gray-400 font-medium">{item.label}</span>
                 </div>
               ))}
             </div>
           </div>
         </div>
 
-        {/* Bottom panel (device list) */}
+        {/* ── Bottom sheet ────────────────────────────── */}
         <div
           className={cn(
-            "absolute bottom-0 left-0 right-0 z-10 transition-all duration-300",
-            panelOpen ? "max-h-[60vh]" : "max-h-14"
+            "absolute bottom-[68px] left-0 right-0 z-10 transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]",
+            panelOpen ? "max-h-[55vh]" : "max-h-12"
           )}
         >
-          <div className="card rounded-b-none backdrop-blur-md bg-surface-1/95 overflow-hidden h-full flex flex-col">
+          <div className="bg-surface-1/90 backdrop-blur-2xl rounded-t-2xl border-t border-white/[0.06] overflow-hidden h-full flex flex-col shadow-[0_-8px_30px_rgba(0,0,0,0.2)]">
+            {/* Drag handle */}
             <button
-              onClick={() => setPanelOpen(!panelOpen)}
-              className="flex items-center justify-center gap-2 px-4 py-3 text-xs text-gray-400 hover:text-gray-200 transition-colors shrink-0"
+              onClick={() => { setPanelOpen(!panelOpen); hapticLight(); }}
+              className="flex flex-col items-center py-2.5 shrink-0 active:bg-surface-2/30"
             >
-              {panelOpen ? (
-                <ChevronDown className="w-4 h-4" />
-              ) : (
-                <ChevronUp className="w-4 h-4" />
-              )}
-              {panelOpen ? "Close" : `${stats.total} devices`}
+              <div className="w-9 h-1 rounded-full bg-gray-600 mb-1" />
+              <span className="text-[11px] text-gray-500 font-medium">
+                {panelOpen ? "Close" : `${stats.total} sensors nearby`}
+              </span>
             </button>
 
             {panelOpen && (
-              <div className="flex-1 overflow-y-auto pb-16">
-                <div className="flex gap-1 px-4 pb-2">
+              <div className="flex-1 overflow-y-auto overscroll-contain">
+                {/* Filter pills */}
+                <div className="flex gap-1.5 px-4 pb-3">
                   {(["ALL", "ALERT", "WARN", "OK"] as const).map((f) => (
                     <button
                       key={f}
-                      onClick={() => setSelectedFilter(f)}
+                      onClick={() => { setSelectedFilter(f); hapticLight(); }}
                       className={cn(
-                        "px-2.5 py-1 rounded text-[11px] font-medium transition-all",
+                        "px-3 py-1.5 rounded-full text-[11px] font-semibold transition-all active:scale-95",
                         selectedFilter === f
-                          ? "bg-blue-500/15 text-blue-400"
-                          : "text-gray-500 hover:text-gray-300"
+                          ? "bg-blue-500/20 text-blue-400"
+                          : "bg-surface-2/50 text-gray-500"
                       )}
                     >
                       {f}
@@ -155,41 +161,32 @@ export default function MapPage() {
                   ))}
                 </div>
 
-                <div className="divide-y divide-surface-3/30">
-                  {filteredDevices.map((device) => (
-                    <div
+                <div className="divide-y divide-white/[0.03]">
+                  {filteredDevices.map((device, i) => (
+                    <Link
                       key={device.deviceId}
-                      className="flex items-center gap-3 px-4 py-3 hover:bg-surface-2/30 transition-colors"
+                      href={`/device/${device.deviceId}`}
+                      onClick={() => hapticLight()}
+                      className="flex items-center gap-3 px-4 py-3.5 active:bg-surface-2/30 transition-colors"
+                      style={{ animationDelay: `${i * 40}ms` }}
                     >
                       <div
-                        className="w-2.5 h-2.5 rounded-full shrink-0"
-                        style={{
-                          backgroundColor: STATUS_CONFIG[device.status].color,
-                        }}
+                        className="w-3 h-3 rounded-full shrink-0 shadow-sm"
+                        style={{ backgroundColor: STATUS_CONFIG[device.status].color }}
                       />
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm text-gray-200 truncate">
-                          {device.name}
-                        </p>
-                        <p className="text-[11px] text-gray-500">
-                          {device.waterLevelCm.toFixed(1)} cm •{" "}
-                          {timeAgo(device.lastSeen)}
+                        <p className="text-[13px] font-medium text-gray-100 truncate">{device.name}</p>
+                        <p className="text-[11px] text-gray-500 mt-0.5">
+                          {device.waterLevelCm.toFixed(1)} cm • {timeAgo(device.lastSeen)}
                         </p>
                       </div>
                       <StatusBadge status={device.status} />
-                      {isAdmin && (
-                        <Link
-                          href={`/device/${device.deviceId}`}
-                          className="text-[11px] text-blue-400"
-                        >
-                          Details
-                        </Link>
-                      )}
-                    </div>
+                    </Link>
                   ))}
                   {filteredDevices.length === 0 && (
-                    <div className="px-4 py-8 text-center text-sm text-gray-500">
-                      No devices found
+                    <div className="px-4 py-10 text-center">
+                      <Droplets className="w-8 h-8 text-gray-700 mx-auto mb-2" />
+                      <p className="text-sm text-gray-500">No sensors found</p>
                     </div>
                   )}
                 </div>
@@ -202,9 +199,21 @@ export default function MapPage() {
   );
 }
 
+function MiniPill({ count, status }: { count: number; status: FloodStatus }) {
+  const config = STATUS_CONFIG[status];
+  return (
+    <span
+      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold tabular-nums"
+      style={{ background: `${config.color}20`, color: config.color }}
+    >
+      {count}
+    </span>
+  );
+}
+
 function getMapCenter(devices: Device[]): [number, number] {
   const located = devices.filter((d) => d.lat && d.lng);
-  if (located.length === 0) return [-80.137, 25.957]; // Aventura default
+  if (located.length === 0) return [-80.137, 25.957];
   const avgLng = located.reduce((s, d) => s + d.lng, 0) / located.length;
   const avgLat = located.reduce((s, d) => s + d.lat, 0) / located.length;
   return [avgLng, avgLat];
