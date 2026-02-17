@@ -96,3 +96,12 @@
   .anim-slide-up { animation: slide-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) both; }
   .anim-fade { animation: fade-in 0.3s ease both; }
 }
+
+/* Fix select and time inputs in dark mode */
+select, input[type="time"] {
+  color-scheme: dark;
+}
+select option {
+  background: #151a2e;
+  color: #e2e8f0;
+}
