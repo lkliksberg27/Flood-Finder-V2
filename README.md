@@ -1,36 +1,76 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Flood Finder — Neighborhood IoT Flood Monitoring System
 
-## Getting Started
+## Architecture
 
-First, run the development server:
-
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+```
+┌─────────────┐    LoRa     ┌──────────────┐   LoRaWAN    ┌─────────────────────┐
+│  LoRa Sensor │───────────▸│   Gateway    │────────────▸│  The Things Stack   │
+│  Node (×30+) │  RF 868/915│  (RAK/Mikro) │   MQTT/gRPC  │  (Network Server)   │
+└─────────────┘            └──────────────┘              └─────────┬───────────┘
+                                                                   │ Webhook (HTTPS POST)
+                                                                   ▼
+                                                        ┌─────────────────────┐
+                                                        │  Firebase Cloud Fn  │
+                                                        │  /api/ingest        │
+                                                        │  ─ validate payload │
+                                                        │  ─ parse TTS format │
+                                                        │  ─ compute status   │
+                                                        └────┬───────────┬────┘
+                                                             │           │
+                                              Batch Write    │           │  Conditional
+                                                             ▼           ▼
+                                                   ┌──────────────┐  ┌──────────────┐
+                                                   │  Firestore   │  │  FCM Push    │
+                                                   │              │  │  (on ALERT)  │
+                                                   │ ┌──────────┐ │  └──────────────┘
+                                                   │ │ devices/  │ │
+                                                   │ │ (latest)  │ │◀──── Public reads
+                                                   │ ├──────────┤ │
+                                                   │ │ readings/ │ │◀──── Admin reads
+                                                   │ │ (raw ts)  │ │
+                                                   │ ├──────────┤ │
+                                                   │ │ alerts/   │ │◀──── Admin reads
+                                                   │ └──────────┘ │
+                                                   └──────┬───────┘
+                                                          │ Realtime snapshots
+                                                          ▼
+                                            ┌──────────────────────────┐
+                                            │   Next.js Frontend       │
+                                            │                          │
+                                            │  /map ────── Public      │
+                                            │  /login ──── Auth gate   │
+                                            │  /dashboard─ Admin table │
+                                            │  /device/id─ Detail view │
+                                            └──────────────────────────┘
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Tech Decisions
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| Decision | Choice | Reason |
+|----------|--------|--------|
+| Maps | **Mapbox GL JS** | Free tier (50k loads/mo), dark/satellite styles built-in, better custom markers, vector tiles = fast on mobile |
+| Charts | **Recharts** | Required by spec; lightweight, composable |
+| Hosting | **Vercel** | Zero-config Next.js deploys, edge functions, preview deploys; Firebase Hosting lacks App Router SSR support |
+| Auth | **Firebase Auth** | Email/password for admin; simple, free |
+| Realtime | **Firestore onSnapshot** | Native realtime; no extra infra |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Quick Start
 
-## Learn More
+```bash
+# 1. Clone & install
+cd flood-finder
+cd frontend && npm install
+cd ../functions && npm install
 
-To learn more about Next.js, take a look at the following resources:
+# 2. Set environment variables (see .env.example files)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+# 3. Deploy functions
+cd functions && npx firebase deploy --only functions
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+# 4. Deploy frontend
+cd frontend && npx vercel
 
-## Deploy on Vercel
+# 5. Configure TTS webhook → your Cloud Function URL
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+See detailed setup in each section below.
