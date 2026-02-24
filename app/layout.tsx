@@ -6,7 +6,6 @@ import { SettingsProvider } from "@/lib/settings-context";
 export const metadata: Metadata = {
   title: "Flood Finder",
   description: "Real-time flood monitoring and safe route planning for South Florida",
-  icons: { icon: "/favicon.ico" },
 };
 
 export const viewport: Viewport = {
@@ -31,10 +30,16 @@ export default function RootLayout({
           href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
           rel="stylesheet"
         />
+        <link
+          rel="stylesheet"
+          href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+          crossOrigin=""
+        />
       </head>
       <body className="antialiased">
         <SettingsProvider>
-          <main className="pb-20">{children}</main>
+          <main className="pb-[72px]">{children}</main>
           <TabBar />
         </SettingsProvider>
       </body>
