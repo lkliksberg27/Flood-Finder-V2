@@ -39,6 +39,8 @@ export default function RouteMap({ routes, selectedIndex }: RouteMapProps) {
 
       mapRef.current = map;
       layersRef.current = L.layerGroup().addTo(map);
+
+      setTimeout(() => map.invalidateSize(), 100);
     }
 
     return () => {
@@ -57,23 +59,23 @@ export default function RouteMap({ routes, selectedIndex }: RouteMapProps) {
 
     layers.clearLayers();
 
-    // Add sensor markers
+    // Sensor markers (warn + alert only)
     sensors
       .filter((s) => s.status !== "OK")
       .forEach((sensor) => {
         const color = STATUS_COLORS[sensor.status];
-        const marker = L.circleMarker([sensor.lat, sensor.lng], {
+        L.circleMarker([sensor.lat, sensor.lng], {
           radius: 6,
           fillColor: color,
           fillOpacity: 0.9,
           color: "white",
           weight: 2,
-        });
-        marker.bindTooltip(sensor.name, { className: "sensor-tooltip" });
-        layers.addLayer(marker);
+        })
+          .bindTooltip(sensor.name, { direction: "top", offset: [0, -8] })
+          .addTo(layers);
       });
 
-    // Draw routes
+    // Route lines
     routes.forEach((route, i) => {
       const isSelected = selectedIndex === i;
       const color =
@@ -83,35 +85,32 @@ export default function RouteMap({ routes, selectedIndex }: RouteMapProps) {
           ? "#fbbf24"
           : "#3b82f6";
 
-      // Shadow line
-      const shadow = L.polyline(route.geometry, {
+      L.polyline(route.geometry, {
         color: "#000",
         weight: isSelected ? 8 : 5,
-        opacity: 0.3,
-      });
-      layers.addLayer(shadow);
+        opacity: 0.25,
+      }).addTo(layers);
 
-      // Main line
-      const line = L.polyline(route.geometry, {
-        color: color,
-        weight: isSelected ? 6 : 3,
-        opacity: isSelected ? 1 : 0.5,
+      L.polyline(route.geometry, {
+        color,
+        weight: isSelected ? 5 : 3,
+        opacity: isSelected ? 1 : 0.45,
         dashArray: isSelected ? undefined : "8 6",
-      });
-      layers.addLayer(line);
+      }).addTo(layers);
     });
 
-    // Fit bounds to selected route or all routes
+    // Fit bounds
     if (selectedIndex !== null && routes[selectedIndex]) {
-      const bounds = L.latLngBounds(routes[selectedIndex].geometry);
-      map.fitBounds(bounds, { padding: [30, 30] });
+      map.fitBounds(L.latLngBounds(routes[selectedIndex].geometry), { padding: [30, 30] });
     } else if (routes.length > 0) {
-      const allPoints = routes.flatMap((r) => r.geometry);
-      if (allPoints.length > 0) {
-        map.fitBounds(L.latLngBounds(allPoints), { padding: [30, 30] });
+      const allPts = routes.flatMap((r) => r.geometry);
+      if (allPts.length > 0) {
+        map.fitBounds(L.latLngBounds(allPts), { padding: [30, 30] });
       }
     }
+
+    setTimeout(() => map.invalidateSize(), 50);
   }, [routes, selectedIndex]);
 
-  return <div ref={containerRef} className="h-full w-full" />;
+  return <div ref={containerRef} style={{ width: "100%", height: "100%" }} />;
 }
