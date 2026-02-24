@@ -1,9 +1,0 @@
-{
-  "name": "Flood Finder",
-  "short_name": "FloodFinder",
-  "start_url": "/map",
-  "display": "standalone",
-  "background_color": "#0c1021",
-  "theme_color": "#0c1021",
-  "orientation": "portrait"
-}
