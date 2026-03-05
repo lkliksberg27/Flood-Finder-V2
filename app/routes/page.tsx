@@ -15,13 +15,18 @@ import {
   CheckCircle2,
   Loader2,
   ArrowRightLeft,
+  Sparkles,
+  Zap,
+  Shield,
+  Clock,
+  TriangleAlert,
 } from "lucide-react";
 import AddressInput from "@/components/AddressInput";
 import { Course, RouteData, loadCourses, saveCourses, generateId } from "@/lib/routes-store";
 import { fetchRoutes, checkFloodingOnRoute } from "@/lib/geo-utils";
 import { useSettings } from "@/lib/settings-context";
 
-const RouteMap = dynamic(() => import("@/components/RouteMap"), {
+const SmartRouteMap = dynamic(() => import("@/components/SmartRouteMap"), {
   ssr: false,
   loading: () => (
     <div className="flex h-full items-center justify-center bg-[#0a0e1a]">
@@ -31,6 +36,54 @@ const RouteMap = dynamic(() => import("@/components/RouteMap"), {
 });
 
 const ROUTE_LABELS = ["Fastest", "Alternative 1", "Alternative 2"];
+
+interface AIRanking {
+  routeIndex: number;
+  safetyScore: number;
+  badge: string;
+  shortReason: string;
+}
+interface AIAnalysis {
+  rankings: AIRanking[];
+  recommendation: string;
+  overallCondition: "clear" | "moderate" | "severe";
+}
+
+const BADGE_STYLES: Record<string, { text: string; bg: string; icon: React.ReactNode }> = {
+  "AI PICK": { text: "text-[#a78bfa]", bg: "bg-[#7c3aed]/20 border-[#7c3aed]/30", icon: <Sparkles size={8} /> },
+  SAFEST:   { text: "text-[#34d399]", bg: "bg-[#34d399]/15 border-[#34d399]/25", icon: <Shield size={8} /> },
+  FASTEST:  { text: "text-[#3b82f6]", bg: "bg-[#3b82f6]/15 border-[#3b82f6]/25", icon: <Zap size={8} /> },
+  CAUTION:  { text: "text-[#fbbf24]", bg: "bg-[#fbbf24]/15 border-[#fbbf24]/25", icon: <TriangleAlert size={8} /> },
+  AVOID:    { text: "text-[#f87171]", bg: "bg-[#f87171]/15 border-[#f87171]/25", icon: <AlertTriangle size={8} /> },
+};
+
+function SafetyRing({ score }: { score: number }) {
+  const r = 18;
+  const circ = 2 * Math.PI * r;
+  const fill = (score / 100) * circ;
+  const color = score >= 75 ? "#34d399" : score >= 40 ? "#fbbf24" : "#f87171";
+  return (
+    <div style={{ position: "relative", width: 48, height: 48 }}>
+      <svg width={48} height={48} style={{ transform: "rotate(-90deg)" }}>
+        <circle cx={24} cy={24} r={r} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth={4} />
+        <circle
+          cx={24} cy={24} r={r} fill="none"
+          stroke={color} strokeWidth={4}
+          strokeDasharray={`${fill} ${circ}`}
+          strokeLinecap="round"
+          style={{ filter: `drop-shadow(0 0 4px ${color}80)` }}
+        />
+      </svg>
+      <div style={{
+        position: "absolute", inset: 0,
+        display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+      }}>
+        <span style={{ fontSize: 13, fontWeight: 800, color, lineHeight: 1 }}>{score}</span>
+        <span style={{ fontSize: 7, color: "#64748b", fontWeight: 500 }}>safe</span>
+      </div>
+    </div>
+  );
+}
 
 export default function RoutesPage() {
   const { settings } = useSettings();
@@ -45,7 +98,11 @@ export default function RoutesPage() {
   const [loading, setLoading] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
-  // Form state
+  // AI state
+  const [aiAnalyses, setAiAnalyses] = useState<Record<string, AIAnalysis>>({});
+  const [aiLoading, setAiLoading] = useState<Record<string, boolean>>({});
+
+  // Form
   const [formName, setFormName] = useState("");
   const [startAddress, setStartAddress] = useState("");
   const [startLat, setStartLat] = useState(0);
@@ -61,9 +118,7 @@ export default function RoutesPage() {
   // Direction per course
   const [directions, setDirections] = useState<Record<string, "AtoB" | "BtoA">>({});
 
-  useEffect(() => {
-    setCourses(loadCourses());
-  }, []);
+  useEffect(() => { setCourses(loadCourses()); }, []);
 
   const save = useCallback((updated: Course[]) => {
     setCourses(updated);
@@ -71,20 +126,14 @@ export default function RoutesPage() {
   }, []);
 
   const resetForm = () => {
-    setFormName("");
-    setStartAddress("");
-    setStartLat(0);
-    setStartLng(0);
-    setEndAddress("");
-    setEndLat(0);
-    setEndLng(0);
-    setShowForm(false);
+    setFormName(""); setStartAddress(""); setStartLat(0); setStartLng(0);
+    setEndAddress(""); setEndLat(0); setEndLng(0); setShowForm(false);
   };
 
   const buildRouteData = (
     rawRoutes: { geometry: [number, number][]; distance: number; duration: number }[]
-  ): RouteData[] => {
-    return rawRoutes.map((r, i) => {
+  ): RouteData[] =>
+    rawRoutes.map((r, i) => {
       const flood = checkFloodingOnRoute(r.geometry, settings.alertRadiusM);
       return {
         geometry: r.geometry,
@@ -96,7 +145,24 @@ export default function RoutesPage() {
         nearbySensors: flood.nearbySensors,
       };
     });
-  };
+
+  // Run AI analysis for a course
+  const runAIAnalysis = useCallback(async (courseId: string, routes: RouteData[], start: string, end: string) => {
+    setAiLoading((prev) => ({ ...prev, [courseId]: true }));
+    try {
+      const resp = await fetch("/api/ai-route", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ routes, startAddress: start, endAddress: end }),
+      });
+      if (!resp.ok) throw new Error("Request failed");
+      const data: AIAnalysis = await resp.json();
+      setAiAnalyses((prev) => ({ ...prev, [courseId]: data }));
+    } catch {
+      // AI is optional — fail silently, routes still work
+    }
+    setAiLoading((prev) => ({ ...prev, [courseId]: false }));
+  }, []);
 
   const handleGenerate = async () => {
     if (!startAddress || !endAddress || !formName) return;
@@ -107,17 +173,17 @@ export default function RoutesPage() {
         fetchRoutes(endLat, endLng, startLat, startLng),
       ]);
 
+      const routesAtoB = buildRouteData(rawAtoB);
+      const routesBtoA = buildRouteData(rawBtoA);
+      const id = generateId();
+
       const newCourse: Course = {
-        id: generateId(),
+        id,
         name: formName,
-        startAddress,
-        startLat,
-        startLng,
-        endAddress,
-        endLat,
-        endLng,
-        routesAtoB: buildRouteData(rawAtoB),
-        routesBtoA: buildRouteData(rawBtoA),
+        startAddress, startLat, startLng,
+        endAddress, endLat, endLng,
+        routesAtoB,
+        routesBtoA,
         schedule: {
           mode: "always",
           days: [true, true, true, true, true, false, false],
@@ -126,12 +192,28 @@ export default function RoutesPage() {
         },
       };
 
-      save([...courses, newCourse]);
+      const updated = [...courses, newCourse];
+      save(updated);
       resetForm();
+      setExpanded(id);
+
+      // Kick off AI analysis immediately
+      runAIAnalysis(id, routesAtoB, startAddress, endAddress);
     } catch {
       alert("Failed to generate routes. Check addresses and try again.");
     }
     setLoading(false);
+  };
+
+  const handleExpand = (courseId: string) => {
+    const next = expanded === courseId ? null : courseId;
+    setExpanded(next);
+    setSelectedRoute(null);
+    // Auto-trigger AI analysis when expanding a course that hasn't been analyzed yet
+    if (next && !aiAnalyses[next] && !aiLoading[next]) {
+      const course = courses.find((c) => c.id === next);
+      if (course) runAIAnalysis(next, course.routesAtoB, course.startAddress, course.endAddress);
+    }
   };
 
   const deleteCourse = (id: string) => {
@@ -148,10 +230,7 @@ export default function RoutesPage() {
 
   const getDirection = (id: string) => directions[id] || "AtoB";
   const toggleDirection = (id: string) => {
-    setDirections((prev) => ({
-      ...prev,
-      [id]: prev[id] === "BtoA" ? "AtoB" : "BtoA",
-    }));
+    setDirections((prev) => ({ ...prev, [id]: prev[id] === "BtoA" ? "AtoB" : "BtoA" }));
     if (selectedRoute?.courseId === id) setSelectedRoute(null);
   };
 
@@ -160,9 +239,9 @@ export default function RoutesPage() {
 
   const getCourseStatus = (course: Course) => {
     const all = [...course.routesAtoB, ...course.routesBtoA];
-    const hasFlooding = all.some((r) => r.hasFlooding);
     const hasSevere = all.some((r) => r.floodLevel === "severe");
-    return { hasFlooding, level: hasSevere ? "severe" : hasFlooding ? "moderate" : "clear" };
+    const hasFlooding = all.some((r) => r.hasFlooding);
+    return { level: hasSevere ? "severe" : hasFlooding ? "moderate" : "clear" };
   };
 
   // Map data
@@ -170,65 +249,52 @@ export default function RoutesPage() {
     ? (() => {
         const course = courses.find((c) => c.id === expanded);
         if (!course) return [];
-        if (selectedRoute?.courseId === expanded) {
-          return selectedRoute.direction === "AtoB" ? course.routesAtoB : course.routesBtoA;
-        }
-        return getDisplayRoutes(course);
+        return selectedRoute?.courseId === expanded
+          ? (selectedRoute.direction === "AtoB" ? course.routesAtoB : course.routesBtoA)
+          : getDisplayRoutes(course);
       })()
     : [];
 
   const mapSelectedIndex = selectedRoute?.courseId === expanded ? selectedRoute.index : null;
+  const expandedCourse = courses.find((c) => c.id === expanded);
+  const expandedAI = expanded ? aiAnalyses[expanded] : undefined;
+  const expandedAILoading = expanded ? aiLoading[expanded] : false;
+  const mapAIRankings = expandedAI?.rankings;
 
-  // Banner
+  // Banner for selected route
   const getBanner = () => {
     if (!selectedRoute) return null;
     const course = courses.find((c) => c.id === selectedRoute.courseId);
     if (!course) return null;
-    const routes =
-      selectedRoute.direction === "AtoB" ? course.routesAtoB : course.routesBtoA;
+    const routes = selectedRoute.direction === "AtoB" ? course.routesAtoB : course.routesBtoA;
     const route = routes[selectedRoute.index];
     if (!route) return null;
-
     if (route.floodLevel === "severe")
-      return {
-        cls: "bg-[#f87171]/15 border-[#f87171]/30",
-        text: `Avoid — ${route.nearbySensors.length} sensor${route.nearbySensors.length > 1 ? "s" : ""} flooding`,
-        color: "text-[#f87171]",
-        icon: <AlertTriangle size={14} className="text-[#f87171]" />,
-      };
+      return { cls: "bg-[#f87171]/15 border-[#f87171]/30", text: `⚠ Avoid — ${route.nearbySensors.length} active flood sensor${route.nearbySensors.length > 1 ? "s" : ""}`, color: "text-[#f87171]" };
     if (route.floodLevel === "moderate")
-      return {
-        cls: "bg-[#fbbf24]/15 border-[#fbbf24]/30",
-        text: `Moderate risk — ${route.nearbySensors.length} nearby`,
-        color: "text-[#fbbf24]",
-        icon: <AlertTriangle size={14} className="text-[#fbbf24]" />,
-      };
-    return {
-      cls: "bg-[#34d399]/15 border-[#34d399]/30",
-      text: "Route is clear",
-      color: "text-[#34d399]",
-      icon: <CheckCircle2 size={14} className="text-[#34d399]" />,
-    };
+      return { cls: "bg-[#fbbf24]/15 border-[#fbbf24]/30", text: `Moderate risk — ${route.nearbySensors.length} warning sensor${route.nearbySensors.length > 1 ? "s" : ""} nearby`, color: "text-[#fbbf24]" };
+    return { cls: "bg-[#34d399]/15 border-[#34d399]/30", text: "Route is clear of flooding ✓", color: "text-[#34d399]" };
   };
-
   const banner = getBanner();
 
   return (
     <div className="flex flex-col bg-[#0a0e1a]" style={{ height: "calc(100dvh - 72px)" }}>
       {/* Map */}
-      <div className="relative h-[38%] shrink-0">
-        <RouteMap routes={mapRoutes} selectedIndex={mapSelectedIndex} />
+      <div className="relative shrink-0" style={{ height: "42%" }}>
+        <SmartRouteMap
+          routes={mapRoutes}
+          selectedIndex={mapSelectedIndex}
+          alertRadiusM={settings.alertRadiusM}
+          aiRankings={mapAIRankings}
+        />
         {banner && (
-          <div
-            className={`absolute bottom-3 left-3 right-3 z-[500] flex items-center gap-2 rounded-xl border px-3 py-2 backdrop-blur-xl ${banner.cls}`}
-          >
-            {banner.icon}
-            <span className={`text-[11px] font-medium ${banner.color}`}>{banner.text}</span>
+          <div className={`absolute bottom-3 left-3 right-3 z-[500] flex items-center gap-2 rounded-xl border px-3 py-2 backdrop-blur-xl ${banner.cls}`}>
+            <span className={`text-[11px] font-semibold ${banner.color}`}>{banner.text}</span>
           </div>
         )}
       </div>
 
-      {/* Course list */}
+      {/* Scrollable content */}
       <div className="flex-1 overflow-y-auto px-4 pt-3 pb-4">
         <div className="mb-3 flex items-center justify-between">
           <h1 className="text-lg font-bold text-[#f1f5f9]">Routes</h1>
@@ -241,7 +307,7 @@ export default function RoutesPage() {
           </button>
         </div>
 
-        {/* Form */}
+        {/* Create form */}
         {showForm && (
           <div className="animate-fade-in-up mb-3 rounded-2xl border border-[#1e293b] bg-[#111827] p-4">
             <input
@@ -272,15 +338,9 @@ export default function RoutesPage() {
                 className="press-scale flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#3b82f6] py-3 text-sm font-semibold text-white disabled:opacity-40"
               >
                 {loading ? (
-                  <>
-                    <Loader2 size={15} className="animate-spin" />
-                    Generating...
-                  </>
+                  <><Loader2 size={15} className="animate-spin" />Analyzing routes...</>
                 ) : (
-                  <>
-                    <Navigation size={15} />
-                    Generate
-                  </>
+                  <><Sparkles size={15} />Generate AI Routes</>
                 )}
               </button>
               <button
@@ -293,23 +353,27 @@ export default function RoutesPage() {
           </div>
         )}
 
-        {/* Empty */}
+        {/* Empty state */}
         {courses.length === 0 && !showForm && (
           <div className="mt-12 flex flex-col items-center gap-3 text-center">
-            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[#3b82f6]/15">
-              <Navigation size={24} className="text-[#3b82f6]" />
+            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[#7c3aed]/15">
+              <Sparkles size={24} className="text-[#a78bfa]" />
             </div>
             <p className="text-sm font-semibold text-[#f1f5f9]">No routes yet</p>
-            <p className="text-xs text-[#94a3b8]">Tap + Add to create your first route</p>
+            <p className="text-xs text-[#94a3b8]">
+              Tap + Add and let AI find the safest path
+            </p>
           </div>
         )}
 
-        {/* Cards */}
+        {/* Course cards */}
         {courses.map((course, ci) => {
           const isExpanded = expanded === course.id;
           const status = getCourseStatus(course);
           const dir = getDirection(course.id);
           const displayRoutes = getDisplayRoutes(course);
+          const analysis = aiAnalyses[course.id];
+          const isAILoading = aiLoading[course.id];
 
           return (
             <div
@@ -317,11 +381,9 @@ export default function RoutesPage() {
               className="animate-fade-in-up mb-2.5 rounded-2xl border border-[#1e293b] bg-[#111827]"
               style={{ animationDelay: `${ci * 0.05}s` }}
             >
+              {/* Course header row */}
               <button
-                onClick={() => {
-                  setExpanded(isExpanded ? null : course.id);
-                  setSelectedRoute(null);
-                }}
+                onClick={() => handleExpand(course.id)}
                 className="flex w-full items-center gap-2.5 p-3.5 text-left"
               >
                 <div className="flex-1 min-w-0">
@@ -339,23 +401,13 @@ export default function RoutesPage() {
                             if (e.key === "Escape") setEditingName(null);
                           }}
                         />
-                        <button onClick={() => renameCourse(course.id)}>
-                          <Check size={12} className="text-[#34d399]" />
-                        </button>
-                        <button onClick={() => setEditingName(null)}>
-                          <X size={12} className="text-[#64748b]" />
-                        </button>
+                        <button onClick={() => renameCourse(course.id)}><Check size={12} className="text-[#34d399]" /></button>
+                        <button onClick={() => setEditingName(null)}><X size={12} className="text-[#64748b]" /></button>
                       </div>
                     ) : (
                       <>
                         <span className="text-sm font-semibold text-[#f1f5f9]">{course.name}</span>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setEditingName(course.id);
-                            setEditNameValue(course.name);
-                          }}
-                        >
+                        <button onClick={(e) => { e.stopPropagation(); setEditingName(course.id); setEditNameValue(course.name); }}>
                           <Pencil size={11} className="text-[#64748b]" />
                         </button>
                       </>
@@ -365,28 +417,117 @@ export default function RoutesPage() {
                     {course.startAddress.split(",")[0]} → {course.endAddress.split(",")[0]}
                   </p>
                 </div>
-                <span
-                  className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold ${
-                    status.level === "clear"
-                      ? "bg-[#34d399]/15 text-[#34d399]"
-                      : status.level === "severe"
-                      ? "bg-[#f87171]/15 text-[#f87171]"
-                      : "bg-[#fbbf24]/15 text-[#fbbf24]"
-                  }`}
-                >
+                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold ${
+                  status.level === "clear" ? "bg-[#34d399]/15 text-[#34d399]"
+                  : status.level === "severe" ? "bg-[#f87171]/15 text-[#f87171]"
+                  : "bg-[#fbbf24]/15 text-[#fbbf24]"
+                }`}>
                   {status.level === "clear" ? "Clear ✓" : "Flood ⚠"}
                 </span>
-                {isExpanded ? (
-                  <ChevronDown size={16} className="text-[#64748b]" />
-                ) : (
-                  <ChevronRight size={16} className="text-[#64748b]" />
-                )}
+                {isExpanded ? <ChevronDown size={16} className="text-[#64748b]" /> : <ChevronRight size={16} className="text-[#64748b]" />}
               </button>
 
+              {/* Expanded content */}
               {isExpanded && (
-                <div className="border-t border-[#1e293b] px-3.5 pb-3.5 pt-3">
-                  {/* Direction toggle */}
-                  <div className="mb-3 flex gap-2">
+                <div className="border-t border-[#1e293b] px-3.5 pb-3.5 pt-3 space-y-3">
+
+                  {/* ── AI Analysis Panel ──────────────────────────────── */}
+                  <div className="rounded-2xl border border-[#7c3aed]/20 bg-gradient-to-br from-[#7c3aed]/8 via-transparent to-[#3b82f6]/5 p-3.5">
+                    {/* Header */}
+                    <div className="flex items-center gap-2 mb-2.5">
+                      <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[#7c3aed]/25">
+                        <Sparkles size={12} className="text-[#a78bfa]" />
+                      </div>
+                      <span className="text-xs font-bold text-[#f1f5f9]">AI Route Intelligence</span>
+                      {isAILoading && <Loader2 size={11} className="ml-auto animate-spin text-[#7c3aed]" />}
+                      {analysis && !isAILoading && (
+                        <span className={`ml-auto text-[8px] font-bold px-2 py-0.5 rounded-full ${
+                          analysis.overallCondition === "clear" ? "bg-[#34d399]/15 text-[#34d399]"
+                          : analysis.overallCondition === "severe" ? "bg-[#f87171]/15 text-[#f87171]"
+                          : "bg-[#fbbf24]/15 text-[#fbbf24]"
+                        }`}>
+                          {analysis.overallCondition} conditions
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Loading dots */}
+                    {isAILoading && (
+                      <div className="flex items-center gap-2.5 py-1">
+                        {[0, 1, 2].map((i) => (
+                          <div
+                            key={i}
+                            className="h-1.5 w-1.5 rounded-full bg-[#7c3aed]"
+                            style={{ animation: `pulse 1.4s ease-in-out ${i * 0.22}s infinite` }}
+                          />
+                        ))}
+                        <span className="text-[10px] text-[#64748b]">AI is analyzing route safety...</span>
+                      </div>
+                    )}
+
+                    {/* AI recommendation text */}
+                    {analysis && !isAILoading && (
+                      <>
+                        <p className="text-[11px] leading-relaxed text-[#94a3b8] mb-3">
+                          {analysis.recommendation}
+                        </p>
+
+                        {/* Route ranking cards */}
+                        <div className="grid grid-cols-3 gap-1.5">
+                          {analysis.rankings.map((ranking) => {
+                            const route = displayRoutes[ranking.routeIndex];
+                            if (!route) return null;
+                            const style = BADGE_STYLES[ranking.badge] || { text: "text-[#94a3b8]", bg: "bg-[#1e293b] border-[#1e293b]", icon: null };
+                            const score = ranking.safetyScore;
+                            const isRouteSelected =
+                              selectedRoute?.courseId === course.id &&
+                              selectedRoute?.direction === dir &&
+                              selectedRoute?.index === ranking.routeIndex;
+
+                            return (
+                              <button
+                                key={ranking.routeIndex}
+                                onClick={() =>
+                                  setSelectedRoute(
+                                    isRouteSelected
+                                      ? null
+                                      : { courseId: course.id, direction: dir, index: ranking.routeIndex }
+                                  )
+                                }
+                                className={`flex flex-col items-center rounded-xl border p-2 transition-all ${
+                                  isRouteSelected
+                                    ? "border-[#7c3aed]/50 bg-[#7c3aed]/10"
+                                    : "border-[#1e293b] bg-[#0a0e1a]"
+                                }`}
+                              >
+                                <SafetyRing score={score} />
+                                <div className="mt-1.5 text-[9px] font-semibold text-[#94a3b8]">
+                                  {route.label}
+                                </div>
+                                <span className={`mt-1 flex items-center gap-0.5 rounded-full border px-1.5 py-0.5 text-[7px] font-bold ${style.bg} ${style.text}`}>
+                                  {style.icon}
+                                  {ranking.badge}
+                                </span>
+                                <p className="mt-1 text-[8px] leading-tight text-[#64748b] text-center">
+                                  {ranking.shortReason}
+                                </p>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </>
+                    )}
+
+                    {/* No AI key fallback */}
+                    {!analysis && !isAILoading && (
+                      <p className="text-[10px] text-[#64748b]">
+                        Add an <span className="text-[#a78bfa] font-mono">ANTHROPIC_API_KEY</span> to enable AI analysis.
+                      </p>
+                    )}
+                  </div>
+
+                  {/* ── Direction toggle ───────────────────────────────── */}
+                  <div className="flex gap-2">
                     <button
                       onClick={() => dir !== "AtoB" && toggleDirection(course.id)}
                       className={`press-scale flex flex-1 items-center justify-center gap-1 rounded-xl px-2 py-2 text-[10px] font-medium ${
@@ -398,16 +539,14 @@ export default function RoutesPage() {
                       <span className="truncate">{course.endAddress.split(",")[0]}</span>
                     </button>
                     <button
-                      onClick={() => {
-                        if (dir !== "BtoA") toggleDirection(course.id);
-                      }}
+                      onClick={() => dir !== "BtoA" && toggleDirection(course.id)}
                       className="press-scale flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#0a0e1a]"
                     >
                       <ArrowRightLeft size={14} className="text-[#94a3b8]" />
                     </button>
                   </div>
 
-                  {/* Route options */}
+                  {/* ── Route option buttons ───────────────────────────── */}
                   <div className="space-y-1.5">
                     {displayRoutes.map((route, ri) => {
                       const isSelected =
@@ -416,6 +555,7 @@ export default function RoutesPage() {
                         selectedRoute?.index === ri;
                       const miles = (route.distance / 1609.34).toFixed(1);
                       const mins = Math.round(route.duration / 60);
+                      const aiRank = analysis?.rankings.find((r) => r.routeIndex === ri);
 
                       return (
                         <button
@@ -431,53 +571,73 @@ export default function RoutesPage() {
                               : "border-[#1e293b] bg-[#0a0e1a]"
                           }`}
                         >
-                          <div className="flex-1">
-                            <span className="text-[11px] font-semibold text-[#f1f5f9]">
-                              {route.label}
-                            </span>
-                            <p className="text-[10px] text-[#64748b]">
-                              {miles} mi &middot; {mins} min
+                          {/* Colored status dot */}
+                          <div
+                            className="shrink-0 h-2 w-2 rounded-full"
+                            style={{
+                              background:
+                                route.floodLevel === "severe" ? "#f87171"
+                                : route.floodLevel === "moderate" ? "#fbbf24"
+                                : "#34d399",
+                              boxShadow:
+                                route.floodLevel === "severe" ? "0 0 6px #f8717180"
+                                : route.floodLevel === "moderate" ? "0 0 6px #fbbf2480"
+                                : "0 0 6px #34d39980",
+                            }}
+                          />
+
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[11px] font-semibold text-[#f1f5f9]">
+                                {route.label}
+                              </span>
+                              {/* AI badge inline */}
+                              {aiRank && (
+                                <span className={`flex items-center gap-0.5 rounded-full border px-1.5 py-0.5 text-[7px] font-bold ${
+                                  (BADGE_STYLES[aiRank.badge] || { bg: "bg-[#1e293b] border-[#1e293b]", text: "text-[#94a3b8]" }).bg
+                                } ${(BADGE_STYLES[aiRank.badge] || { text: "text-[#94a3b8]" }).text}`}>
+                                  {BADGE_STYLES[aiRank.badge]?.icon}
+                                  {aiRank.badge}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[10px] text-[#64748b] flex items-center gap-2 mt-0.5">
+                              <span className="flex items-center gap-0.5">
+                                <Navigation size={8} className="text-[#64748b]" />
+                                {miles} mi
+                              </span>
+                              <span className="flex items-center gap-0.5">
+                                <Clock size={8} className="text-[#64748b]" />
+                                {mins} min
+                              </span>
                             </p>
                           </div>
+
+                          {/* Flood status */}
                           {route.hasFlooding ? (
-                            <span
-                              className={`text-[9px] font-semibold ${
-                                route.floodLevel === "severe" ? "text-[#f87171]" : "text-[#fbbf24]"
-                              }`}
-                            >
+                            <span className={`shrink-0 text-[9px] font-semibold ${
+                              route.floodLevel === "severe" ? "text-[#f87171]" : "text-[#fbbf24]"
+                            }`}>
                               {route.nearbySensors.length} alert{route.nearbySensors.length > 1 ? "s" : ""}
                             </span>
                           ) : (
-                            <span className="text-[9px] font-semibold text-[#34d399]">Safe ✓</span>
+                            <span className="shrink-0 text-[9px] font-semibold text-[#34d399]">Clear ✓</span>
                           )}
                         </button>
                       );
                     })}
                   </div>
 
-                  {/* Delete */}
-                  <div className="mt-3">
+                  {/* ── Delete ────────────────────────────────────────── */}
+                  <div>
                     {deleteConfirm === course.id ? (
                       <div className="flex items-center gap-2 rounded-xl bg-[#f87171]/10 p-2.5">
-                        <span className="flex-1 text-[11px] text-[#f87171]">Delete?</span>
-                        <button
-                          onClick={() => setDeleteConfirm(null)}
-                          className="px-2.5 py-1 text-[11px] text-[#94a3b8]"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          onClick={() => deleteCourse(course.id)}
-                          className="rounded-lg bg-[#f87171] px-2.5 py-1 text-[11px] font-semibold text-white"
-                        >
-                          Delete
-                        </button>
+                        <span className="flex-1 text-[11px] text-[#f87171]">Delete this route?</span>
+                        <button onClick={() => setDeleteConfirm(null)} className="px-2.5 py-1 text-[11px] text-[#94a3b8]">Cancel</button>
+                        <button onClick={() => deleteCourse(course.id)} className="rounded-lg bg-[#f87171] px-2.5 py-1 text-[11px] font-semibold text-white">Delete</button>
                       </div>
                     ) : (
-                      <button
-                        onClick={() => setDeleteConfirm(course.id)}
-                        className="flex items-center gap-1.5 text-[11px] text-[#f87171]"
-                      >
+                      <button onClick={() => setDeleteConfirm(course.id)} className="flex items-center gap-1.5 text-[11px] text-[#f87171]">
                         <Trash2 size={12} />
                         Delete
                       </button>
