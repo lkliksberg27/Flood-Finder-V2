@@ -103,6 +103,57 @@ export async function fetchRoutes(
   );
 }
 
+// Per-segment flood level groups for visual rendering
+export interface SegmentFloodGroup {
+  points: [number, number][];
+  floodLevel: "none" | "moderate" | "severe";
+}
+
+// Splits a route geometry into groups of consecutive segments with the same flood level.
+// Used to color each section of a route green/amber/red on the map.
+export function getSegmentFloodInfo(
+  geometry: [number, number][],
+  radiusM: number
+): SegmentFloodGroup[] {
+  if (geometry.length < 2) return [{ points: geometry, floodLevel: "none" }];
+
+  const levels: ("none" | "moderate" | "severe")[] = [];
+
+  for (let i = 0; i < geometry.length - 1; i++) {
+    const [lat1, lng1] = geometry[i];
+    const [lat2, lng2] = geometry[i + 1];
+    const midLat = (lat1 + lat2) / 2;
+    const midLng = (lng1 + lng2) / 2;
+    let level: "none" | "moderate" | "severe" = "none";
+
+    for (const sensor of sensors) {
+      if (sensor.status === "OK") continue;
+      const dist = haversineDistance(midLat, midLng, sensor.lat, sensor.lng);
+      if (dist <= radiusM) {
+        if (sensor.status === "ALERT") { level = "severe"; break; }
+        else if (sensor.status === "WARN") level = "moderate";
+      }
+    }
+    levels.push(level);
+  }
+
+  // Group consecutive segments with the same level into a single polyline group
+  const groups: SegmentFloodGroup[] = [];
+  let i = 0;
+  while (i < levels.length) {
+    const level = levels[i];
+    const points: [number, number][] = [geometry[i]];
+    let j = i;
+    while (j < levels.length && levels[j] === level) {
+      points.push(geometry[j + 1]);
+      j++;
+    }
+    groups.push({ points, floodLevel: level });
+    i = j;
+  }
+  return groups;
+}
+
 // Geocode search
 export async function geocodeSearch(
   query: string
